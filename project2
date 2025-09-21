@@ -1,0 +1,84 @@
+import cv2
+import mediapipe as mp
+import numpy as np
+
+# Initialize MediaPipe
+mp_hands = mp.solutions.hands
+hands = mp_hands.Hands(max_num_hands=1)
+mp_draw = mp.solutions.drawing_utils
+
+# Initialize OpenCV
+cap = cv2.VideoCapture(0)
+shape_pos = [300, 300]
+shape_color = (0, 255, 0)
+shape_size = 50
+
+def get_direction(x, y, prev_x, prev_y):
+    if abs(x - prev_x) > abs(y - prev_y):
+        return 'right' if x > prev_x else 'left'
+    else:
+        return 'down' if y > prev_y else 'up'
+
+prev_x, prev_y = 0, 0
+
+while True:
+    success, img = cap.read()
+    if not success:
+        print("⚠️ Camera error.")
+        break
+
+    img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    results = hands.process(img_rgb)
+
+    h, w, _ = img.shape
+    gesture_detected = False
+
+    if results.multi_hand_landmarks:
+        for handLms in results.multi_hand_landmarks:
+            mp_draw.draw_landmarks(img, handLms, mp_hands.HAND_CONNECTIONS)
+
+            # Get coordinates of index finger tip
+            x = int(handLms.landmark[8].x * w)
+            y = int(handLms.landmark[8].y * h)
+
+            # Direction detection
+            direction = get_direction(x, y, prev_x, prev_y)
+            if direction == 'up':
+                shape_pos[1] -= 10
+            elif direction == 'down':
+                shape_pos[1] += 10
+            elif direction == 'left':
+                shape_pos[0] -= 10
+            elif direction == 'right':
+                shape_pos[0] += 10
+
+            prev_x, prev_y = x, y
+
+            # Gesture detection: thumbs-up
+            thumb_tip = handLms.landmark[4]
+            index_tip = handLms.landmark[8]
+            if thumb_tip.y < index_tip.y:
+                shape_color = (255, 0, 0)  # Change color
+                gesture_detected = True
+
+            # Dynamic interaction: change size based on hand distance
+            wrist = handLms.landmark[0]
+            middle_tip = handLms.landmark[12]
+            distance = np.linalg.norm(
+                np.array([wrist.x, wrist.y]) - np.array([middle_tip.x, middle_tip.y])
+            )
+            shape_size = int(100 * distance)
+
+    else:
+        cv2.putText(img, "No hand detected", (10, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+
+    # Draw shape
+    cv2.circle(img, tuple(shape_pos), shape_size, shape_color, -1)
+
+    cv2.imshow("Hand Tracking", img)
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
+
+cap.release()
+cv2.destroyAllWindows()
